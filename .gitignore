@@ -1,0 +1,15 @@
+backend-node/node_modules/
+ml-service-python/venv/
+
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+*.log
+
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
