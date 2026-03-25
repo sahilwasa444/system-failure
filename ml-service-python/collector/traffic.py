@@ -1,53 +1,28 @@
 import requests
 import time
 import random
-import csv
-from datetime import datetime
 
 urls = [
-    "http://localhost",
-    "http://localhost:8000",
-    "http://localhost/api",
-    "http://localhost/test",
-    "https://httpbin.org/get",
-    "https://jsonplaceholder.typicode.com/posts",
-    "https://example.com"
+    "https://www.google.com",
+    "https://api.github.com",
+    "https://example.com",
+    "https://www.wikipedia.org",
+    "https://jsonplaceholder.typicode.com/posts"
 ]
 
-file = "traffic_dataset.csv"
-
-# create csv header
-with open(file, "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["timestamp", "url", "latency", "status", "failure"])
+session = requests.Session()
 
 while True:
-
     url = random.choice(urls)
     start = time.time()
-
     try:
-        response = requests.get(url, timeout=1)
-
+        response = session.get(url, timeout=5)
         latency = time.time() - start
-        status = response.status_code
-        failure = 0
-
-        print(f"{url} | {status} | {latency:.3f}")
-
-    except requests.RequestException:
-
-        latency = None
-        status = 0
-        failure = 1
-
-        print(f"{url} | Failed")
-
-    timestamp = datetime.now()
-
-    # save to dataset
-    with open(file, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([timestamp, url, latency, status, failure])
-
-    time.sleep(random.uniform(0.5, 2))
+        print(f"[OK] {url} | Status: {response.status_code} | Latency: {latency:.3f}s")
+    except requests.exceptions.Timeout:
+        print(f"[TIMEOUT] {url}")
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] {url} | {e}")
+    
+    # sleep between 1–3 seconds randomly
+    time.sleep(random.uniform(1, 3))
