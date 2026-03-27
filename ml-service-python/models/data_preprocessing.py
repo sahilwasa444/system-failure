@@ -14,6 +14,15 @@ print(df.shape)
 print(df.isnull().sum())
 
 df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+df["latency"] = pd.to_numeric(df["latency"], errors="coerce")
+df["status"] = pd.to_numeric(df["status"], errors="coerce")
+df["failure"] = pd.to_numeric(df["failure"], errors="coerce")
+
+filled_failed_latencies = (df["failure"].eq(1) & df["latency"].isna()).sum()
+df.loc[df["failure"].eq(1) & df["latency"].isna(), "latency"] = 0.0
+
+print(f"Filled failed rows with latency=0: {filled_failed_latencies}")
+
 df = df.dropna(subset=["timestamp", "latency", "status", "failure"]).copy()
 
 print(df.head())
@@ -21,8 +30,8 @@ print(df["timestamp"].min(), df["timestamp"].max())
 
 df = df.sort_values("timestamp").reset_index(drop=True)
 print(df.head())
-
-features = ["latency", "status", "failure"]
+df["url_encoded"] = df["url"].astype("category").cat.codes
+features = ["latency", "status", "failure", "url_encoded"]
 data = df[features].astype(float)
 
 scaler = StandardScaler()
