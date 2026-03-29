@@ -1,0 +1,136 @@
+[1mdiff --git a/ml-service-python/models/train_lstm.py b/ml-service-python/models/train_lstm.py[m
+[1mindex ceba160..2ba9217 100644[m
+[1m--- a/ml-service-python/models/train_lstm.py[m
+[1m+++ b/ml-service-python/models/train_lstm.py[m
+[36m@@ -1,10 +1,18 @@[m
+[31m-import torch [m
+[32m+[m[32mfrom copy import deepcopy[m
+[32m+[m[32mfrom pathlib import Path[m
+[32m+[m
+[32m+[m[32mimport torch[m
+ import torch.nn as nn[m
+[31m-import numpy as np[m
+ [m
+ from data_preprocessing import X_train, y_train, X_test, y_test[m
+ [m
+ [m
+[32m+[m[32mMODEL_PATH = Path(__file__).with_name("lstm_model.pth")[m
+[32m+[m[32mVALIDATION_SPLIT = 0.1[m
+[32m+[m[32mPATIENCE = 15[m
+[32m+[m[32mMIN_DELTA = 1e-4[m
+[32m+[m
+[32m+[m
+ # Convert to tensor[m
+ X_train = torch.tensor(X_train, dtype=torch.float32 )[m
+ X_test  = torch.tensor(X_test, dtype=torch.float32 )[m
+[36m@@ -15,6 +23,19 @@[m [my_test  = torch.tensor(y_test, dtype=torch.float32 )[m
+ print(X_train.shape, y_train.shape)[m
+ print(X_test.shape, y_test.shape)[m
+ [m
+[32m+[m[32mvalidation_size = max(1, int(len(X_train) * VALIDATION_SPLIT))[m
+[32m+[m
+[32m+[m[32mif len(X_train) <= validation_size:[m
+[32m+[m[32m    raise ValueError("Not enough training samples to create a validation split for early stopping.")[m
+[32m+[m
+[32m+[m[32mtrain_inputs = X_train[:-validation_size][m
+[32m+[m[32mtrain_targets = y_train[:-validation_size][m
+[32m+[m[32mval_inputs = X_train[-validation_size:][m
+[32m+[m[32mval_targets = y_train[-validation_size:][m
+[32m+[m
+[32m+[m[32mprint(train_inputs.shape, train_targets.shape)[m
+[32m+[m[32mprint(val_inputs.shape, val_targets.shape)[m
+[32m+[m
+ [m
+ # LSTM Model[m
+ class LSTMModel(nn.Module):[m
+[36m@@ -25,6 +46,8 @@[m [mclass LSTMModel(nn.Module):[m
+         self.lstm = nn.LSTM([m
+             input_size,[m
+             hidden_size,[m
+[32m+[m[32m            num_layers=2,[m
+[32m+[m[32m            dropout=0.2,[m
+             batch_first=True[m
+         )[m
+ [m
+[36m@@ -47,7 +70,7 @@[m [mclass LSTMModel(nn.Module):[m
+ [m
+ # Model parameters[m
+ input_size = X_train.shape[2][m
+[31m-hidden_size = 32[m
+[32m+[m[32mhidden_size = 64[m
+ output_size = y_train.shape[1][m
+ [m
+ [m
+[36m@@ -57,19 +80,23 @@[m [mmodel = LSTMModel(input_size, hidden_size, output_size)[m
+ [m
+ # Loss and optimizer[m
+ criterion = nn.MSELoss()[m
+[31m-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)[m
+[32m+[m[32moptimizer = torch.optim.Adam(model.parameters(), lr=0.003, weight_decay=1e-5)[m
+ [m
+ [m
+ # Training[m
+[31m-num_epochs = 100[m
+[32m+[m[32mnum_epochs = 150[m
+[32m+[m[32mbest_val_loss = float("inf")[m
+[32m+[m[32mbest_epoch = 0[m
+[32m+[m[32mepochs_without_improvement = 0[m
+[32m+[m[32mbest_model_state = deepcopy(model.state_dict())[m
+ [m
+ for epoch in range(num_epochs):[m
+ [m
+     model.train()[m
+ [m
+[31m-    outputs = model(X_train)[m
+[32m+[m[32m    outputs = model(train_inputs)[m
+ [m
+[31m-    loss = criterion(outputs, y_train)[m
+[32m+[m[32m    loss = criterion(outputs, train_targets)[m
+ [m
+     optimizer.zero_grad()[m
+ [m
+[36m@@ -77,8 +104,33 @@[m [mfor epoch in range(num_epochs):[m
+ [m
+     optimizer.step()[m
+ [m
+[31m-    if (epoch+1) % 10 == 0:[m
+[31m-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')[m
+[32m+[m[32m    model.eval()[m
+[32m+[m
+[32m+[m[32m    with torch.no_grad():[m
+[32m+[m[32m        val_predictions = model(val_inputs)[m
+[32m+[m[32m        val_loss = criterion(val_predictions, val_targets)[m
+[32m+[m
+[32m+[m[32m    if val_loss.item() < best_val_loss - MIN_DELTA:[m
+[32m+[m[32m        best_val_loss = val_loss.item()[m
+[32m+[m[32m        best_epoch = epoch + 1[m
+[32m+[m[32m        epochs_without_improvement = 0[m
+[32m+[m[32m        best_model_state = deepcopy(model.state_dict())[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        epochs_without_improvement += 1[m
+[32m+[m
+[32m+[m[32m    if (epoch + 1) % 10 == 0:[m
+[32m+[m[32m        print([m
+[32m+[m[32m            f"Epoch [{epoch+1}/{num_epochs}], "[m
+[32m+[m[32m            f"Train Loss: {loss.item():.4f}, "[m
+[32m+[m[32m            f"Val Loss: {val_loss.item():.4f}"[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m    if epochs_without_improvement >= PATIENCE:[m
+[32m+[m[32m        print(f"Early stopping triggered at epoch {epoch+1}. Best validation loss: {best_val_loss:.4f}")[m
+[32m+[m[32m        break[m
+[32m+[m
+[32m+[m[32mmodel.load_state_dict(best_model_state)[m
+[32m+[m[32mprint(f"Restored best model from epoch {best_epoch} with validation loss {best_val_loss:.4f}")[m
+         [m
+ model.eval()[m
+ [m
+[36m@@ -90,5 +142,5 @@[m [mwith torch.no_grad():[m
+ [m
+     print("Test Loss:", test_loss.item())[m
+     [m
+[31m-torch.save(model.state_dict(), "lstm_model.pth")[m
+[31m-print("Model Saved")[m
+\ No newline at end of file[m
+[32m+[m[32mtorch.save(model.state_dict(), MODEL_PATH)[m
+[32m+[m[32mprint(f"Model Saved: {MODEL_PATH}")[m

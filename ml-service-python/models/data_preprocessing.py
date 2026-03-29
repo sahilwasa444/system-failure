@@ -2,7 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 DATASET_PATH = Path(__file__).resolve().parents[1] / "collector" / "traffic_dataset.csv"
@@ -30,33 +29,44 @@ print(df["timestamp"].min(), df["timestamp"].max())
 
 df = df.sort_values("timestamp").reset_index(drop=True)
 print(df.head())
+
+df["time_delta_seconds"] = df["timestamp"].diff().dt.total_seconds().fillna(0.0)
+df["time_delta_seconds"] = df["time_delta_seconds"].clip(lower=0.0)
+
 df["url_encoded"] = df["url"].astype("category").cat.codes
-features = ["latency", "status", "failure", "url_encoded"]
-data = df[features].astype(float)
+features = [
+    "latency",
+    "status",
+    "failure",
+    "url_encoded",
+    "time_delta_seconds",
+]
 
-scaler = StandardScaler()
-data_scaled = scaler.fit_transform(data)
+target_index = features.index("latency")
 
 
-def sequences(data, seq_len):
+def sequences(data, seq_len, target_index):
     X = []
     y = []
 
     for i in range(len(data) - seq_len):
         X.append(data[i:i + seq_len])
-        y.append(data[i + seq_len])
+        y.append(data[i + seq_len, target_index])   # only next latency
 
     return np.array(X), np.array(y)
 
+seq_len = 15
+split_index = int(len(df) * 0.8)
 
-seq_len = 10
-X, y = sequences(data_scaled, seq_len)
+train_data = df.iloc[:split_index][features].astype(float).to_numpy()
+test_data = df.iloc[split_index - seq_len:][features].astype(float).to_numpy()
 
-print(X.shape, y.shape)
+scaler = StandardScaler()
+train_scaled = scaler.fit_transform(train_data)
+test_scaled = scaler.transform(test_data)
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, shuffle=False
-)
+X_train, y_train = sequences(train_scaled, seq_len, target_index)
+X_test, y_test = sequences(test_scaled, seq_len, target_index)
 
 print(X_train.shape, y_train.shape)
 print(X_test.shape, y_test.shape)

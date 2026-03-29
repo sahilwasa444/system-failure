@@ -1,5 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
+from torch.utils.data import DataLoader, TensorDataset
+
 
 import torch
 import torch.nn as nn
@@ -11,13 +13,16 @@ MODEL_PATH = Path(__file__).with_name("lstm_model.pth")
 VALIDATION_SPLIT = 0.1
 PATIENCE = 15
 MIN_DELTA = 1e-4
+SEED = 42
+
+torch.manual_seed(SEED)
 
 
 # Convert to tensor
 X_train = torch.tensor(X_train, dtype=torch.float32 )
 X_test  = torch.tensor(X_test, dtype=torch.float32 )
-y_train = torch.tensor(y_train, dtype=torch.float32 )
-y_test  = torch.tensor(y_test, dtype=torch.float32 )
+y_train = torch.tensor(y_train, dtype=torch.float32 ).unsqueeze(1)
+y_test  = torch.tensor(y_test, dtype=torch.float32 ).unsqueeze(1)
 
 
 print(X_train.shape, y_train.shape)
@@ -36,6 +41,14 @@ val_targets = y_train[-validation_size:]
 print(train_inputs.shape, train_targets.shape)
 print(val_inputs.shape, val_targets.shape)
 
+BATCH_SIZE = 64
+
+train_dataset = TensorDataset(train_inputs, train_targets)
+val_dataset = TensorDataset(val_inputs, val_targets)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
 
 # LSTM Model
 class LSTMModel(nn.Module):
@@ -47,7 +60,7 @@ class LSTMModel(nn.Module):
             input_size,
             hidden_size,
             num_layers=2,
-            dropout=0.2,
+            dropout=0.1,
             batch_first=True
         )
 
@@ -60,8 +73,6 @@ class LSTMModel(nn.Module):
 
         out = out[:, -1, :]
         
-        out = torch.relu(out)
-        
         out = self.fc(out)
 
         return out
@@ -71,7 +82,7 @@ class LSTMModel(nn.Module):
 # Model parameters
 input_size = X_train.shape[2]
 hidden_size = 64
-output_size = y_train.shape[1]
+output_size = 1
 
 
 # Initialize model
@@ -80,8 +91,14 @@ model = LSTMModel(input_size, hidden_size, output_size)
 
 # Loss and optimizer
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.003, weight_decay=1e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
 
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode='min',
+    factor=0.5,
+    patience=5
+)
 
 # Training
 num_epochs = 150
@@ -91,27 +108,35 @@ epochs_without_improvement = 0
 best_model_state = deepcopy(model.state_dict())
 
 for epoch in range(num_epochs):
-
+    
     model.train()
+    train_loss_sum = 0.0
 
-    outputs = model(train_inputs)
+    for batch_inputs, batch_targets in train_loader:
+        outputs = model(batch_inputs)
+        loss = criterion(outputs, batch_targets)
 
-    loss = criterion(outputs, train_targets)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    optimizer.zero_grad()
+        train_loss_sum += loss.item() * batch_inputs.size(0)
 
-    loss.backward()
-
-    optimizer.step()
+    train_loss = train_loss_sum / len(train_loader.dataset)
 
     model.eval()
+    val_loss_sum = 0.0
 
     with torch.no_grad():
-        val_predictions = model(val_inputs)
-        val_loss = criterion(val_predictions, val_targets)
+        for batch_inputs, batch_targets in val_loader:
+            val_predictions = model(batch_inputs)
+            batch_val_loss = criterion(val_predictions, batch_targets)
+            val_loss_sum += batch_val_loss.item() * batch_inputs.size(0)
 
-    if val_loss.item() < best_val_loss - MIN_DELTA:
-        best_val_loss = val_loss.item()
+    val_loss = val_loss_sum / len(val_loader.dataset)
+
+    if val_loss < best_val_loss - MIN_DELTA:
+        best_val_loss = val_loss
         best_epoch = epoch + 1
         epochs_without_improvement = 0
         best_model_state = deepcopy(model.state_dict())
@@ -121,13 +146,17 @@ for epoch in range(num_epochs):
     if (epoch + 1) % 10 == 0:
         print(
             f"Epoch [{epoch+1}/{num_epochs}], "
-            f"Train Loss: {loss.item():.4f}, "
-            f"Val Loss: {val_loss.item():.4f}"
+            f"Train Loss: {train_loss:.4f}, "
+            f"Val Loss: {val_loss:.4f}"
         )
 
+    scheduler.step(val_loss)
+
     if epochs_without_improvement >= PATIENCE:
-        print(f"Early stopping triggered at epoch {epoch+1}. Best validation loss: {best_val_loss:.4f}")
+        print(f"Early stopping at epoch {epoch+1}")
         break
+
+
 
 model.load_state_dict(best_model_state)
 print(f"Restored best model from epoch {best_epoch} with validation loss {best_val_loss:.4f}")
