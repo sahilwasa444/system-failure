@@ -8,7 +8,7 @@ except ModuleNotFoundError as exc:
         "Install it with `python -m pip install pandas`."
     ) from exc
 
-DATASET_PATH = Path(__file__).resolve().parents[1] / "dataset.csv"
+DATASET_PATH = Path(__file__).resolve().parents[1] / "clean_dataset.csv"
 
 data = pd.read_csv(DATASET_PATH)
 print(data.head())
